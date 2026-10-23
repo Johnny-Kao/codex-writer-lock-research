@@ -113,11 +113,13 @@ def main():
             print("initialize B:", response if "result" not in response else "ok")
             if "result" not in response:
                 return
-            print("B concurrent resume:", b.rpc("thread/resume", {"threadId": thread_id}))
+            r = b.rpc("thread/resume", {"threadId": thread_id})
+            print("B concurrent resume:", r.get("error", {}).get("message", "succeeded"))
             unsub = a.rpc("thread/unsubscribe", {"threadId": thread_id})
             print("A unsubscribe:", unsub)
             time.sleep(2)
-            print("B resume after unsubscribe:", b.rpc("thread/resume", {"threadId": thread_id}))
+            r = b.rpc("thread/resume", {"threadId": thread_id})
+            print("B resume after unsubscribe:", "success" if "result" in r else r.get("error", {}).get("message", r))
             print("isolated lock files:", len(list((pathlib.Path(home) / "thread-writer-locks").glob("*.lock"))))
         finally:
             if b is not None:
