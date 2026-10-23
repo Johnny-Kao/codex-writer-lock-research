@@ -1,0 +1,85 @@
+name: Codex writer ownership regression (isolated)
+
+on:
+  push:
+    branches: [fix/explicit-unsubscribe-handoff]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: writer-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout research
+        uses: actions/checkout@v4
+
+      - name: Clone pinned upstream Codex
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/openai/codex.git upstream
+          git -C upstream checkout --detach f3a90545aed3188ee1e5c119ec89a742de399cdc
+
+      - name: Apply Rust patch
+        run: |
+          git -C upstream apply --check "$GITHUB_WORKSPACE/patches/explicit-unsubscribe-handoff.patch"
+          git -C upstream apply "$GITHUB_WORKSPACE/patches/explicit-unsubscribe-handoff.patch"
+          git -C upstream diff --check
+
+      - name: Install project Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt
+
+      - name: Normalize Rust formatting in disposable checkout
+        working-directory: upstream/codex-rs
+        run: |
+          cargo fmt --all
+          git diff --check
+
+      - name: Build patched CLI
+        working-directory: upstream/codex-rs
+        run: cargo build --locked -p codex-cli --bin codex
+
+      - name: Build app-server MCP test fixture
+        working-directory: upstream/codex-rs
+        run: cargo build --locked -p codex-rmcp-client --bin test_stdio_server
+
+      - name: App-server Rust unit tests (larger stack)
+        working-directory: upstream/codex-rs
+        env:
+          RUST_MIN_STACK: '16777216'
+        run: cargo test --locked -p codex-app-server --lib
+
+      - name: Handoff integration test (patched binary, 30-min grace)
+        run: |
+          python3 scripts/two_client_repro.py \
+            --codex upstream/codex-rs/target/debug/codex \
+            --unload-delay 1800 --expect-handoff
+
+      - name: Handoff control (patched binary, zero grace)
+        run: |
+          python3 scripts/two_client_repro.py \
+            --codex upstream/codex-rs/target/debug/codex \
+            --unload-delay 0 --expect-handoff
+
+      - name: Abrupt server process exit (no unsubscribe, 30-min grace)
+        run: |
+          python3 scripts/two_client_repro.py \
+            --codex upstream/codex-rs/target/debug/codex \
+            --unload-delay 1800 --disconnect --expect-handoff
+
+      - name: Same daemon two WebSocket connections and unexpected client disconnect
+        run: |
+          python3 -m pip install --user 'websockets>=13,<17'
+          python3 scripts/single_daemon_ws_reconnect.py \
+            --codex upstream/codex-rs/target/debug/codex \
+            --unload-delay 1800

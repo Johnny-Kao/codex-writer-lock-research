@@ -67,10 +67,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--codex", default=shutil.which("codex"))
     ap.add_argument("--unload-delay", type=int, default=0)
+    ap.add_argument("--disconnect", action="store_true",
+                    help="Terminate server A without unsubscribe (process-exit control, not network disconnect)")
+    ap.add_argument("--expect-handoff", action="store_true",
+                    help="Assert that the competing server can resume after explicit unsubscribe")
     args = ap.parse_args()
     if not args.codex:
         ap.error("codex unavailable")
-    with tempfile.TemporaryDirectory(prefix="codex-writer-research-") as home:
+    with tempfile.TemporaryDirectory(prefix="codex-writer-research-", ignore_cleanup_errors=True) as home:
         env = dict(os.environ, CODEX_HOME=home)
         env.pop("CODEX_REMOTE_AUTH_TOKEN", None)
         cwd = str(pathlib.Path(home) / "workspace")
@@ -115,11 +119,19 @@ def main():
                 return
             r = b.rpc("thread/resume", {"threadId": thread_id})
             print("B concurrent resume:", r.get("error", {}).get("message", "succeeded"))
-            unsub = a.rpc("thread/unsubscribe", {"threadId": thread_id})
-            print("A unsubscribe:", unsub)
+            if r.get("error", {}).get("code") != -32600:
+                raise AssertionError("Competing writer was not rejected")
+            if args.disconnect:
+                a.close()
+                print("A terminated without unsubscribe")
+            else:
+                unsub = a.rpc("thread/unsubscribe", {"threadId": thread_id})
+                print("A unsubscribe:", unsub)
             time.sleep(2)
             r = b.rpc("thread/resume", {"threadId": thread_id})
-            print("B resume after unsubscribe:", "success" if "result" in r else r.get("error", {}).get("message", r))
+            print("B resume after A exit/unsubscribe:", "success" if "result" in r else r.get("error", {}).get("message", r))
+            if args.expect_handoff and "result" not in r:
+                raise AssertionError("Handoff failed after A exit/unsubscribe")
             print("isolated lock files:", len(list((pathlib.Path(home) / "thread-writer-locks").glob("*.lock"))))
         finally:
             if b is not None:

@@ -1,0 +1,119 @@
+diff --git a/codex-rs/app-server/src/request_processors/thread_lifecycle.rs b/codex-rs/app-server/src/request_processors/thread_lifecycle.rs
+index f864f0f..f25bb33 100644
+--- a/codex-rs/app-server/src/request_processors/thread_lifecycle.rs
++++ b/codex-rs/app-server/src/request_processors/thread_lifecycle.rs
+@@ -22,6 +22,7 @@ pub(super) struct ListenerTaskContext {
+ struct UnloadingState {
+     delay: Duration,
+     has_subscribers_rx: watch::Receiver<bool>,
++    explicit_handoff_rx: watch::Receiver<bool>,
+     has_subscribers: (bool, Instant),
+     thread_status_rx: watch::Receiver<ThreadStatus>,
+     is_active: (bool, Instant),
+@@ -37,6 +38,10 @@ impl UnloadingState {
+             .thread_state_manager
+             .subscribe_to_has_connections(thread_id)
+             .await?;
++        let explicit_handoff_rx = listener_task_context
++            .thread_state_manager
++            .subscribe_to_explicit_handoff(thread_id)
++            .await?;
+         let thread_status_rx = listener_task_context
+             .thread_watch_manager
+             .subscribe(thread_id)
+@@ -49,6 +54,7 @@ impl UnloadingState {
+         Some(Self {
+             delay,
+             has_subscribers_rx,
++            explicit_handoff_rx,
+             has_subscribers,
+             thread_status_rx,
+             is_active,
+@@ -58,7 +64,12 @@ impl UnloadingState {
+     fn unloading_target(&self) -> Option<Instant> {
+         match (self.has_subscribers, self.is_active) {
+             ((false, has_no_subscribers_since), (false, is_inactive_since)) => {
+-                std::cmp::max(has_no_subscribers_since, is_inactive_since).checked_add(self.delay)
++                let delay = if *self.explicit_handoff_rx.borrow() {
++                    Duration::ZERO
++                } else {
++                    self.delay
++                };
++                std::cmp::max(has_no_subscribers_since, is_inactive_since).checked_add(delay)
+             }
+             _ => None,
+         }
+@@ -107,6 +118,12 @@ impl UnloadingState {
+             };
+             tokio::select! {
+                 _ = unloading_sleep => return true,
++                changed = self.explicit_handoff_rx.changed() => {
++                    if changed.is_err() {
++                        return false;
++                    }
++                    self.sync_receiver_values();
++                },
+                 changed = self.has_subscribers_rx.changed() => {
+                     if changed.is_err() {
+                         return false;
+diff --git a/codex-rs/app-server/src/thread_state.rs b/codex-rs/app-server/src/thread_state.rs
+index 6dfe969..b02814f 100644
+--- a/codex-rs/app-server/src/thread_state.rs
++++ b/codex-rs/app-server/src/thread_state.rs
+@@ -321,6 +321,7 @@ struct ThreadEntry {
+     state: Arc<Mutex<ThreadState>>,
+     connection_ids: HashSet<ConnectionId>,
+     has_connections_watcher: watch::Sender<bool>,
++    explicit_handoff_watcher: watch::Sender<bool>,
+ }
+ 
+ impl Default for ThreadEntry {
+@@ -329,6 +330,7 @@ impl Default for ThreadEntry {
+             state: Arc::new(Mutex::new(ThreadState::default())),
+             connection_ids: HashSet::new(),
+             has_connections_watcher: watch::channel(false).0,
++            explicit_handoff_watcher: watch::channel(false).0,
+         }
+     }
+ }
+@@ -582,6 +584,9 @@ impl ThreadStateManager {
+             if let Some(thread_entry) = state.threads.get_mut(&thread_id) {
+                 thread_entry.connection_ids.remove(&connection_id);
+                 thread_entry.update_has_connections();
++                if thread_entry.connection_ids.is_empty() {
++                    thread_entry.explicit_handoff_watcher.send_replace(true);
++                }
+             }
+         };
+ 
+@@ -616,6 +621,7 @@ impl ThreadStateManager {
+                 .insert(thread_id);
+             let thread_entry = state.threads.entry(thread_id).or_default();
+             thread_entry.connection_ids.insert(connection_id);
++            thread_entry.explicit_handoff_watcher.send_replace(false);
+             thread_entry.update_has_connections();
+             thread_entry.state.clone()
+         };
+@@ -644,6 +650,7 @@ impl ThreadStateManager {
+             .insert(thread_id);
+         let thread_entry = state.threads.entry(thread_id).or_default();
+         thread_entry.connection_ids.insert(connection_id);
++        thread_entry.explicit_handoff_watcher.send_replace(false);
+         thread_entry.update_has_connections();
+         true
+     }
+@@ -674,6 +681,14 @@ impl ThreadStateManager {
+         }
+     }
+ 
++    pub(crate) async fn subscribe_to_explicit_handoff(
++        &self,
++        thread_id: ThreadId,
++    ) -> Option<watch::Receiver<bool>> {
++        let state = self.state.lock().await;
++        state.threads.get(&thread_id).map(|entry| entry.explicit_handoff_watcher.subscribe())
++    }
++
+     pub(crate) async fn subscribe_to_has_connections(
+         &self,
+         thread_id: ThreadId,
