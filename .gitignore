@@ -1,0 +1,13 @@
+# Never commit real Codex state or credentials
+.codex/
+sessions/
+thread-writer-locks/
+auth.json
+*.jsonl
+*.sqlite
+*.db
+logs/
+.env*
+__pycache__/
+.pytest_cache/
+target/
