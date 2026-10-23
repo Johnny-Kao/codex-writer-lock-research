@@ -1,25 +1,37 @@
-# Experimental fix: explicit unsubscribe handoff
+# Experimental patch — explicit unsubscribe writer handoff
 
-This **uncompiled experimental patch** targets openai/codex HEAD `f3a90545aed3188ee1e5c119ec89a742de399cdc` and should not be deployed to a live daemon.
+**Status (23 October 2026): compiled and tested in isolated GitHub-hosted Linux CI; not an upstream-merged or production-deployed fix.**
 
-## Intent
+This Rust patch targets [openai/codex](https://github.com/openai/codex), pinned to upstream commit `f3a90545aed3188ee1e5c119ec89a742de399cdc`.
 
-Keep the existing 1800-second grace period for abrupt disconnects (to support reconnect). On an **explicit** `thread/unsubscribe` that removes the last subscriber, publish a one-way handoff request. `UnloadingState` can then initiate existing guarded unload logic without waiting for the grace period, provided the thread has no active turn. A fresh subscriber resets the handoff request. The existing pending-unload and agent-running checks remain unchanged.
+## Problem and intended effect
 
-## Validation
+With the default `thread_unload_delay_secs=1800` (30 minutes), an app-server can continue to hold exclusive writer ownership after its last client **explicitly unsubscribes** from an idle thread. A separate app-server attempting to resume the same persisted thread then receives `already has an active writer`. The zero-delay baseline succeeds; the 1,800-second unmodified baseline does not after a two-second retry.
 
-```
-cd /path/to/openai-codex
- git apply --check /path/to/explicit-unsubscribe-handoff.patch
- git apply /path/to/explicit-unsubscribe-handoff.patch
- cargo test -p codex-app-server
- python3 /path/to/two_client_repro.py --codex /path/to/patched/codex --unload-delay 1800 --expect-handoff
-```
+This patch records explicit relinquishment from the last subscriber and permits the existing guarded idle unload to run without waiting for the ordinary grace period. It preserves normal grace behavior for unexpected disconnects, as well as safeguards around active turns. It does **not** disable writer exclusivity.
 
-The unmodified Codex 0.160.0/0.163.0 **fails** `--expect-handoff` at a 1800-second delay; with zero delay it passes. No build or Rust test run has yet been completed for this patch because the connected M5 does not have `cargo`/`rustfmt` on PATH.
+## Changed upstream files
 
-## Limits
+- `codex-rs/app-server/src/thread_state.rs` — explicit handoff watcher, set on final unsubscribe and reset on subscribe.
+- `codex-rs/app-server/src/request_processors/thread_lifecycle.rs` — guarded zero-delay unload on explicit handoff.
 
-- This patch addresses **explicit unsubscribe only**. It does not establish that iOS always sends unsubscribe. Unclean client disconnect behavior and active-turn semantics require additional regression tests.
-- A separate Rust regression test and formatter/build validation are required before describing the patch as ready for upstream.
-- Never delete an active `.lock` file or bypass the writer guard.
+Patch file: [explicit-unsubscribe-handoff.patch](explicit-unsubscribe-handoff.patch).
+
+## Verified results
+
+[GitHub Actions Run #18 — SUCCESS](https://github.com/Johnny-Kao/codex-writer-lock-research/actions/runs/39911708910):
+
+- Patch applies and patched CLI compiles.
+- **398 / 398** app-server library unit tests passed; no skipped unit tests.
+- Concurrent second writer blocked while A owns the session.
+- Two-server explicit-unsubscribe handoff passes with delay = 1,800 seconds and with delay = 0.
+- Process-exit without unsubscribe: competing app-server resumes.
+- Single live daemon / two WebSocket clients: after A disconnects without unsubscribe, B resumes in isolated simulation.
+
+**Scope caveat:** the last two tests cover distinct scenarios. The single-daemon WebSocket case has no unpatched control, so its success does not establish that the explicit-unsubscribe patch fixed unexpected client disconnect. Actual iPhone Remote Control routing, active-turn disconnection, and production operation remain unverified.
+
+## Reproduce
+
+Use the commands in [the pinned CI workflow](../.github/workflows/codex-writer-regression.yml) to clone the correct upstream SHA, apply the patch, compile and execute all cases. The harness creates temporary synthetic `CODEX_HOME` data; never aim it at an existing managed daemon.
+
+The report and research PR are independent work in this repository, **not an upstream submission or acceptance**. See [the main report](../README.md) and [Draft PR #2](https://github.com/Johnny-Kao/codex-writer-lock-research/pull/2).
