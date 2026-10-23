@@ -75,9 +75,9 @@ def main():
         cwd = str(pathlib.Path(home) / "workspace")
         pathlib.Path(cwd).mkdir()
         a = Client(args.codex, env, args.unload_delay)
-        b = Client(args.codex, env, args.unload_delay)
+        b = None
         try:
-            for c in (a, b):
+            for c in (a,):
                 response = c.rpc("initialize", {
                     "clientInfo": {"name": "writer-lock-research", "version": "0.1"},
                     "capabilities": {}})
@@ -91,6 +91,11 @@ def main():
             print("thread/start:", "ok" if thread_id else start)
             if not thread_id:
                 return
+            b = Client(args.codex, env, args.unload_delay)
+            response = b.rpc("initialize", {"clientInfo": {"name": "writer-lock-research-B", "version": "0.1"}, "capabilities": {}})
+            print("initialize B:", response if "result" not in response else "ok")
+            if "result" not in response:
+                return
             print("B concurrent resume:", b.rpc("thread/resume", {"threadId": thread_id}))
             unsub = a.rpc("thread/unsubscribe", {"threadId": thread_id})
             print("A unsubscribe:", unsub)
@@ -98,7 +103,8 @@ def main():
             print("B resume after unsubscribe:", b.rpc("thread/resume", {"threadId": thread_id}))
             print("isolated lock files:", len(list((pathlib.Path(home) / "thread-writer-locks").glob("*.lock"))))
         finally:
-            b.close()
+            if b is not None:
+                b.close()
             a.close()
     print("disposed isolated CODEX_HOME; existing daemon unaffected")
 
