@@ -17,6 +17,8 @@ This repository documents an independent investigation into Codex app-server thr
 | Did CI pass? | **Yes:** [GitHub Actions Run #18](https://github.com/Johnny-Kao/codex-writer-lock-research/actions/runs/39911708910), including **398/398** app-server unit tests and integration checks. |
 | Is the reported iPhone Remote Control issue fixed? | **Not demonstrated.** A simulated same-daemon WebSocket reconnect passed, but does not prove that the patch caused that outcome or that the actual mobile Remote Control path behaves identically. |
 
+**Upstream implementation discussion:** [openai/codex#56378](https://github.com/openai/codex/issues/56378) (research shared with maintainers; no upstream adoption implied).
+
 ### 1. Incident and motivation
 
 The investigation started **23 October 2026** after a Codex Remote Control handoff from a mobile client produced an error of the form:
