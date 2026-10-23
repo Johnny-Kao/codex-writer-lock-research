@@ -49,8 +49,10 @@ jobs:
         working-directory: upstream/codex-rs
         run: cargo build --locked -p codex-cli --bin codex
 
-      - name: App-server Rust unit tests
+      - name: App-server Rust unit tests (larger stack)
         working-directory: upstream/codex-rs
+        env:
+          RUST_MIN_STACK: '16777216'
         run: cargo test --locked -p codex-app-server --lib
 
       - name: Handoff integration test (patched binary, 30-min grace)
