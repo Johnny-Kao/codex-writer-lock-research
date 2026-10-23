@@ -74,7 +74,7 @@ def main():
     args = ap.parse_args()
     if not args.codex:
         ap.error("codex unavailable")
-    with tempfile.TemporaryDirectory(prefix="codex-writer-research-") as home:
+    with tempfile.TemporaryDirectory(prefix="codex-writer-research-", ignore_cleanup_errors=True) as home:
         env = dict(os.environ, CODEX_HOME=home)
         env.pop("CODEX_REMOTE_AUTH_TOKEN", None)
         cwd = str(pathlib.Path(home) / "workspace")
