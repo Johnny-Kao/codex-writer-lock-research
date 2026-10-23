@@ -44,3 +44,7 @@ python3 scripts/two_client_repro.py --unload-delay 1800
 ```
 
 Next: test unexpected socket disconnect, retained subscription, active-turn protection, and CLI 0.163.x. Do not change a real daemon's configuration without assessing effects on remote reattachment.
+
+## Confirmation on Codex managed-daemon binary 0.163.0
+
+Repeated both A/B cases using the **standalone executable** from the installed 0.163.0 package, without connecting to the running managed daemon. Results match 0.160.0 exactly: delay=0 allows resume after unsubscribe; delay=1800 retains exclusive writer ownership after unsubscribe. This reproduces the grace-period behavior in the same version family as the reported issue, but does not independently prove a buggy disconnect handler.
