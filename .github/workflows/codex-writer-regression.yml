@@ -76,3 +76,10 @@ jobs:
           python3 scripts/two_client_repro.py \
             --codex upstream/codex-rs/target/debug/codex \
             --unload-delay 1800 --disconnect --expect-handoff
+
+      - name: Same daemon two WebSocket connections and unexpected client disconnect
+        run: |
+          python3 -m pip install --user 'websockets>=13,<17'
+          python3 scripts/single_daemon_ws_reconnect.py \
+            --codex upstream/codex-rs/target/debug/codex \
+            --unload-delay 1800
