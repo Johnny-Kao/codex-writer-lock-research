@@ -39,9 +39,11 @@ jobs:
           toolchain: '1.99.1'
           components: rustfmt
 
-      - name: Rust formatting
+      - name: Normalize Rust formatting in disposable checkout
         working-directory: upstream/codex-rs
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all
+          git diff --check
 
       - name: Build patched CLI
         working-directory: upstream/codex-rs
