@@ -102,7 +102,7 @@ def main():
                                "message": "Synthetic writer research fixture",
                                "kind": "plain"}}
             rollout = rollouts / f"rollout-2025-01-05T12-00-00-{thread_id}.jsonl"
-            rollout.write_text(json.dumps(metadata) + "\\n" + json.dumps(msg) + "\\n")
+            rollout.write_text(json.dumps(metadata) + "\n" + json.dumps(msg) + "\n")
             print("synthetic rollout created:", rollout.name[:19], "(ID redacted)")
             first = a.rpc("thread/resume", {"threadId": thread_id})
             print("A initial resume:", "ok" if "result" in first else first)
