@@ -49,6 +49,10 @@ jobs:
         working-directory: upstream/codex-rs
         run: cargo build --locked -p codex-cli --bin codex
 
+      - name: Build app-server MCP test fixture
+        working-directory: upstream/codex-rs
+        run: cargo build --locked -p codex-rmcp-client --bin test_stdio_server
+
       - name: App-server Rust unit tests (larger stack)
         working-directory: upstream/codex-rs
         env:
