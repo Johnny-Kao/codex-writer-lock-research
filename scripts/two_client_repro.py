@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 
 class Client:
     def __init__(self, codex, env, unload_delay):
@@ -86,10 +87,26 @@ def main():
                                              "method": "initialized",
                                              "params": {}}) + "\n").encode())
                 c.p.stdin.flush()
-            start = a.rpc("thread/start", {"cwd": cwd})
-            thread_id = start.get("result", {}).get("thread", {}).get("id")
-            print("thread/start:", "ok" if thread_id else start)
-            if not thread_id:
+            # Synthetic upstream-style test fixture: no user session or account data.
+            thread_id = str(uuid.uuid4())
+            rollouts = pathlib.Path(home) / "sessions" / "2025" / "01" / "05"
+            rollouts.mkdir(parents=True, exist_ok=True)
+            metadata = {"timestamp": "2025-01-05T12:00:00Z", "type": "session_meta",
+                        "payload": {"session_id": thread_id, "id": thread_id,
+                                    "timestamp": "2025-01-05T12:00:00Z",
+                                    "cwd": cwd, "originator": "codex",
+                                    "cli_version": "0.0.0", "source": "cli",
+                                    "model_provider": "openai"}}
+            msg = {"timestamp": "2025-01-05T12:00:00Z", "type": "event_msg",
+                   "payload": {"type": "user_message",
+                               "message": "Synthetic writer research fixture",
+                               "kind": "plain"}}
+            rollout = rollouts / f"rollout-2025-01-05T12-00-00-{thread_id}.jsonl"
+            rollout.write_text(json.dumps(metadata) + "\\n" + json.dumps(msg) + "\\n")
+            print("synthetic rollout created:", rollout.name[:19], "(ID redacted)")
+            first = a.rpc("thread/resume", {"threadId": thread_id})
+            print("A initial resume:", "ok" if "result" in first else first)
+            if "result" not in first:
                 return
             b = Client(args.codex, env, args.unload_delay)
             response = b.rpc("initialize", {"clientInfo": {"name": "writer-lock-research-B", "version": "0.1"}, "capabilities": {}})
