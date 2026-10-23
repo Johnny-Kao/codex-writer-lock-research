@@ -22,3 +22,25 @@ A correct fix needs: (a) a failing regression test before patch, (b) passing tes
 ## Important distinction
 
 A writer lock held during a documented unload grace period is not automatically incorrect. Determine whether the owning app-server has subscribers, active turns, pending I/O, or a scheduled unload before attributing a lifecycle defect.
+
+
+## 2026-10-23: isolated two-server result (Codex CLI 0.160.0, macOS)
+
+Synthetic persisted JSONL fixture, isolated `CODEX_HOME`, two standalone stdio app-servers, **no actual model turn**:
+
+| Event | unload delay 0 | unload delay 1800 |
+|---|---|---|
+| Server A `thread/resume` | PASS | PASS |
+| Server B `thread/resume` while A owns thread | `-32600 already has an active writer` | same |
+| Server A `thread/unsubscribe` | `unsubscribed` | `unsubscribed` |
+| 2 seconds later Server B `thread/resume` | **PASS** | **-32600 active writer** |
+
+This supports the hypothesis that **configured idle unload grace time can retain writer ownership after unsubscribing**, even when no model turn is in progress. It does NOT prove an erroneous subscriber leak or Remote Control backend fault. A temporary lock **filename count is not an ownership measurement**; lock release was verified operationally by successful competing resume in the zero-delay case.
+
+Reproduce:
+```sh
+python3 scripts/two_client_repro.py --unload-delay 0
+python3 scripts/two_client_repro.py --unload-delay 1800
+```
+
+Next: test unexpected socket disconnect, retained subscription, active-turn protection, and CLI 0.163.x. Do not change a real daemon's configuration without assessing effects on remote reattachment.
